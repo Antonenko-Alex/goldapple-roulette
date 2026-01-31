@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
@@ -575,11 +575,18 @@
     <script>
         // Telegram Web App
         const tg = window.Telegram.WebApp;
-        tg.expand();
-        tg.ready();
+        
+        // Инициализация Telegram Web App
+        if (typeof tg !== 'undefined' && tg.initData) {
+            tg.expand();
+            tg.ready();
+            console.log('Telegram Web App initialized');
+        } else {
+            console.log('Running in browser mode (not Telegram)');
+        }
 
         // Данные приложения
-        let tickets = 3;
+        let tickets = localStorage.getItem('roulette_tickets') ? parseInt(localStorage.getItem('roulette_tickets')) : 3;
         let isSpinning = false;
         let history = [];
         let collection = [];
@@ -587,14 +594,14 @@
 
         // Призы рулетки
         const prizes = [
-            { amount: "300₽", value: 300, type: "prize", color: "#FF416C" },
-            { amount: "500₽", value: 500, type: "prize", color: "#FF4B2B" },
-            { amount: "1000₽", value: 1000, type: "prize", color: "#FFD700" },
-            { amount: "3000₽", value: 3000, type: "prize", color: "#4CAF50" },
-            { amount: "0", value: 0, type: "lose", color: "#666" },
-            { amount: "🎫 +1", value: 1, type: "ticket", color: "#2196F3" },
-            { amount: "🎫 +3", value: 3, type: "ticket", color: "#9C27B0" },
-            { amount: "🎫 +5", value: 5, type: "ticket", color: "#FF416C" }
+            { amount: "300₽", value: 300, type: "prize", color: "#FF416C", weight: 10 },
+            { amount: "500₽", value: 500, type: "prize", color: "#FF4B2B", weight: 8 },
+            { amount: "1000₽", value: 1000, type: "prize", color: "#FFD700", weight: 5 },
+            { amount: "3000₽", value: 3000, type: "prize", color: "#4CAF50", weight: 2 },
+            { amount: "0", value: 0, type: "lose", color: "#666", weight: 20 },
+            { amount: "🎫 +1", value: 1, type: "ticket", color: "#2196F3", weight: 25 },
+            { amount: "🎫 +3", value: 3, type: "ticket", color: "#9C27B0", weight: 15 },
+            { amount: "🎫 +5", value: 5, type: "ticket", color: "#FF416C", weight: 10 }
         ];
 
         // Инициализация
@@ -607,11 +614,18 @@
             
             // Показываем главный экран
             showSection('main');
+            
+            // Обновляем счетчик билетов
+            updateTicketCount();
+            
+            console.log('App initialized. Tickets:', tickets);
         });
 
         // Создание сегментов рулетки
         function createRouletteSegments() {
             const segmentsContainer = document.getElementById('rouletteSegments');
+            if (!segmentsContainer) return;
+            
             segmentsContainer.innerHTML = '';
             
             for (let i = 0; i < 12; i++) {
@@ -634,22 +648,66 @@
 
         // Загрузка данных пользователя
         function loadUserData() {
-            const user = tg.initDataUnsafe.user;
-            const userId = user?.id || 'unknown';
-            
-            // Реферальная ссылка
-            document.getElementById('refLink').value = `https://t.me/rullet_golden_bot?start=ref_${userId}`;
-            
-            // Загрузка истории и коллекции
-            loadHistory();
-            loadCollection();
-            loadFriends();
+            try {
+                // Пытаемся получить данные из Telegram
+                let userId = 'demo';
+                if (typeof tg !== 'undefined' && tg.initDataUnsafe && tg.initDataUnsafe.user) {
+                    userId = tg.initDataUnsafe.user.id || 'demo';
+                }
+                
+                // Реферальная ссылка
+                const refLinkElement = document.getElementById('refLink');
+                if (refLinkElement) {
+                    refLinkElement.value = `https://t.me/rullet_golden_bot?start=ref_${userId}`;
+                }
+                
+                // Загрузка данных из localStorage
+                const savedHistory = localStorage.getItem('roulette_history');
+                const savedCollection = localStorage.getItem('roulette_collection');
+                const savedFriends = localStorage.getItem('roulette_friends');
+                
+                if (savedHistory) {
+                    try {
+                        history = JSON.parse(savedHistory);
+                    } catch (e) {
+                        history = [];
+                    }
+                }
+                
+                if (savedCollection) {
+                    try {
+                        collection = JSON.parse(savedCollection);
+                    } catch (e) {
+                        collection = [];
+                    }
+                }
+                
+                if (savedFriends) {
+                    try {
+                        friends = JSON.parse(savedFriends);
+                    } catch (e) {
+                        friends = [];
+                    }
+                }
+                
+                console.log('User data loaded:', { tickets, history: history.length, collection: collection.length });
+                
+            } catch (error) {
+                console.error('Error loading user data:', error);
+            }
         }
 
-        // Вращение рулетки
+        // Вращение рулетки - ИСПРАВЛЕННАЯ ФУНКЦИЯ
         function spinRoulette() {
-            if (isSpinning) return;
+            console.log('spinRoulette called, isSpinning:', isSpinning, 'tickets:', tickets);
+            
+            if (isSpinning) {
+                console.log('Already spinning');
+                return;
+            }
+            
             if (tickets <= 0) {
+                console.log('No tickets left');
                 showModal('loseModal');
                 return;
             }
@@ -657,93 +715,108 @@
             // Начинаем вращение
             isSpinning = true;
             tickets--;
-            updateTickets();
+            localStorage.setItem('roulette_tickets', tickets.toString());
             
             const spinButton = document.getElementById('spinButton');
             const wheel = document.getElementById('rouletteWheel');
-            spinButton.disabled = true;
+            
+            if (spinButton) spinButton.disabled = true;
+            if (wheel) wheel.style.transition = 'transform 3s cubic-bezier(0.2, 0.8, 0.3, 1)';
+            
+            // Обновляем счетчик билетов
+            updateTicketCount();
+            
+            // Выбираем случайный приз с учетом весов
+            const totalWeight = prizes.reduce((sum, prize) => sum + prize.weight, 0);
+            let random = Math.random() * totalWeight;
+            let selectedPrize = prizes[0];
+            
+            for (const prize of prizes) {
+                random -= prize.weight;
+                if (random <= 0) {
+                    selectedPrize = prize;
+                    break;
+                }
+            }
+            
+            console.log('Selected prize:', selectedPrize);
             
             // Анимация вращения
             const spins = 5 + Math.random() * 3; // 5-8 полных оборотов
-            const winningSegment = Math.floor(Math.random() * prizes.length);
-            const degrees = spins * 360 + (winningSegment * 30) + 15; // Останавливаемся на середине сегмента
+            const prizeIndex = prizes.findIndex(p => p === selectedPrize);
+            const degrees = spins * 360 + (prizeIndex * (360 / prizes.length)) + (360 / prizes.length / 2);
             
-            wheel.style.transform = `rotate(${degrees}deg)`;
+            if (wheel) {
+                wheel.style.transform = `rotate(${degrees}deg)`;
+            }
             
             // Задержка для завершения анимации
             setTimeout(() => {
-                const prize = prizes[winningSegment];
-                handlePrize(prize);
+                console.log('Spin completed, handling prize');
+                handlePrize(selectedPrize);
                 
                 // Добавляем в историю
-                addToHistory(prize);
+                addToHistory(selectedPrize);
                 
                 isSpinning = false;
-                spinButton.disabled = false;
+                if (spinButton) spinButton.disabled = false;
                 
                 // Сбрасываем рулетку через 2 секунды
                 setTimeout(() => {
-                    wheel.style.transform = 'rotate(0deg)';
+                    if (wheel) {
+                        wheel.style.transition = 'transform 0.5s ease-out';
+                        wheel.style.transform = 'rotate(0deg)';
+                    }
                 }, 2000);
+                
             }, 3000);
         }
 
         // Обработка выигрыша
         function handlePrize(prize) {
+            console.log('Handling prize:', prize);
+            
             if (prize.type === 'lose') {
                 showModal('loseModal');
             } else {
                 if (prize.type === 'ticket') {
                     tickets += prize.value;
-                    updateTickets();
+                    localStorage.setItem('roulette_tickets', tickets.toString());
+                    updateTicketCount();
                 } else if (prize.type === 'prize') {
                     addToCollection(prize);
                     showWinAnimation(prize);
                 }
                 
-                document.getElementById('winPrizeText').textContent = `Вы выиграли ${prize.amount}!`;
+                const winPrizeText = document.getElementById('winPrizeText');
+                if (winPrizeText) {
+                    winPrizeText.textContent = `Вы выиграли ${prize.amount}!`;
+                }
+                
                 showModal('winModal');
+                
+                // Отправляем данные в Telegram бота, если в режиме Telegram
+                if (typeof tg !== 'undefined' && tg.sendData) {
+                    try {
+                        tg.sendData(JSON.stringify({
+                            action: 'spin_result',
+                            prize: prize.amount,
+                            type: prize.type,
+                            tickets: tickets
+                        }));
+                    } catch (error) {
+                        console.log('Could not send data to bot:', error);
+                    }
+                }
             }
         }
 
-        // Показ анимации победы
-        function showWinAnimation(prize) {
-            // Конфетти
-            confetti({
-                particleCount: 150,
-                spread: 70,
-                origin: { y: 0.6 }
-            });
-            
-            // Анимация падающей карточки
-            const card = document.createElement('div');
-            card.className = 'winning-card';
-            card.style.background = prize.color;
-            card.style.width = '100px';
-            card.style.height = '60px';
-            card.style.borderRadius = '10px';
-            card.style.display = 'flex';
-            card.style.alignItems = 'center';
-            card.style.justifyContent = 'center';
-            card.style.color = 'white';
-            card.style.fontWeight = 'bold';
-            card.style.fontSize = '20px';
-            card.textContent = prize.amount;
-            card.style.top = '50%';
-            card.style.left = '50%';
-            card.style.transform = 'translate(-50%, -50%)';
-            
-            document.body.appendChild(card);
-            
-            // Убираем карточку после анимации
-            setTimeout(() => {
-                card.remove();
-            }, 2000);
-        }
-
         // Обновление счетчика билетов
-        function updateTickets() {
-            document.getElementById('ticketCount').textContent = tickets;
+        function updateTicketCount() {
+            const ticketCountElement = document.getElementById('ticketCount');
+            if (ticketCountElement) {
+                ticketCountElement.textContent = tickets;
+            }
         }
 
         // Добавление в историю
@@ -751,22 +824,35 @@
             const historyItem = {
                 date: new Date().toLocaleString('ru-RU'),
                 prize: prize.amount,
-                type: prize.type === 'lose' ? 'lose' : 'win'
+                type: prize.type === 'lose' ? 'lose' : 'win',
+                timestamp: Date.now()
             };
             
             history.unshift(historyItem);
-            if (history.length > 10) history.pop();
+            if (history.length > 20) history.pop();
             
-            saveHistory();
+            // Сохраняем в localStorage
+            try {
+                localStorage.setItem('roulette_history', JSON.stringify(history));
+            } catch (e) {
+                console.error('Error saving history:', e);
+            }
+            
+            // Обновляем отображение, если открыта секция истории
             loadHistory();
         }
 
-        // Загрузка истории
+        // Загрузка истории для отображения
         function loadHistory() {
             const historyList = document.getElementById('historyList');
             if (!historyList) return;
             
             historyList.innerHTML = '';
+            
+            if (history.length === 0) {
+                historyList.innerHTML = '<p style="text-align: center; color: #aaa; padding: 20px;">История вращений пуста</p>';
+                return;
+            }
             
             history.forEach((item, index) => {
                 const div = document.createElement('div');
@@ -795,16 +881,29 @@
             };
             
             collection.unshift(collectionItem);
-            saveCollection();
+            
+            // Сохраняем в localStorage
+            try {
+                localStorage.setItem('roulette_collection', JSON.stringify(collection));
+            } catch (e) {
+                console.error('Error saving collection:', e);
+            }
+            
+            // Обновляем отображение
             loadCollection();
         }
 
-        // Загрузка коллекции
+        // Загрузка коллекции для отображения
         function loadCollection() {
             const collectionList = document.getElementById('collectionList');
             if (!collectionList) return;
             
             collectionList.innerHTML = '';
+            
+            if (collection.length === 0) {
+                collectionList.innerHTML = '<p style="text-align: center; color: #aaa; padding: 20px;">Коллекция выигрышей пуста</p>';
+                return;
+            }
             
             collection.forEach(item => {
                 const div = document.createElement('div');
@@ -817,6 +916,49 @@
                 `;
                 collectionList.appendChild(div);
             });
+        }
+
+        // Показ анимации победы
+        function showWinAnimation(prize) {
+            // Конфетти
+            try {
+                confetti({
+                    particleCount: 150,
+                    spread: 70,
+                    origin: { y: 0.6 }
+                });
+            } catch (e) {
+                console.log('Confetti error:', e);
+            }
+            
+            // Анимация падающей карточки
+            const card = document.createElement('div');
+            card.className = 'winning-card';
+            card.style.background = prize.color || '#FF416C';
+            card.style.width = '100px';
+            card.style.height = '60px';
+            card.style.borderRadius = '10px';
+            card.style.display = 'flex';
+            card.style.alignItems = 'center';
+            card.style.justifyContent = 'center';
+            card.style.color = 'white';
+            card.style.fontWeight = 'bold';
+            card.style.fontSize = '20px';
+            card.textContent = prize.amount;
+            card.style.top = '50%';
+            card.style.left = '50%';
+            card.style.position = 'fixed';
+            card.style.zIndex = '9999';
+            card.style.transform = 'translate(-50%, -50%)';
+            
+            document.body.appendChild(card);
+            
+            // Убираем карточку после анимации
+            setTimeout(() => {
+                if (card.parentNode) {
+                    card.parentNode.removeChild(card);
+                }
+            }, 2000);
         }
 
         // Загрузка друзей
@@ -832,85 +974,81 @@
         // Показать секцию
         function showSection(section) {
             // Скрываем все секции
-            document.querySelectorAll('.container > div').forEach(div => {
-                if (div.classList.contains('roulette-container') || 
-                    div.classList.contains('history-section') || 
-                    div.classList.contains('friends-section') || 
-                    div.classList.contains('collection-section')) {
-                    div.style.display = 'none';
+            const sections = ['roulette-container', 'historySection', 'friendsSection', 'collectionSection'];
+            sections.forEach(sectionId => {
+                const element = document.getElementById(sectionId) || 
+                               (sectionId === 'roulette-container' ? document.querySelector('.roulette-container') : null);
+                if (element) {
+                    element.style.display = 'none';
                 }
             });
             
             // Показываем нужную секцию
             if (section === 'main') {
-                document.querySelector('.roulette-container').style.display = 'block';
-            } else if (section === 'history') {
-                document.getElementById('historySection').style.display = 'block';
-            } else if (section === 'friends') {
-                document.getElementById('friendsSection').style.display = 'block';
-            } else if (section === 'collection') {
-                document.getElementById('collectionSection').style.display = 'block';
+                const mainSection = document.querySelector('.roulette-container');
+                if (mainSection) mainSection.style.display = 'block';
+            } else {
+                const sectionElement = document.getElementById(section + 'Section');
+                if (sectionElement) sectionElement.style.display = 'block';
             }
             
             // Обновляем активное меню
-            document.querySelectorAll('.menu-item').forEach(item => {
+            document.querySelectorAll('.menu-item').forEach((item, index) => {
                 item.classList.remove('active');
             });
             
-            document.querySelectorAll('.menu-item')[{
-                'main': 0, 'history': 1, 'friends': 2, 'collection': 3
-            }[section]].classList.add('active');
+            const menuIndex = { 'main': 0, 'history': 1, 'friends': 2, 'collection': 3 }[section];
+            const menuItems = document.querySelectorAll('.menu-item');
+            if (menuItems[menuIndex]) {
+                menuItems[menuIndex].classList.add('active');
+            }
+            
+            // Загружаем данные для секции
+            if (section === 'history') loadHistory();
+            if (section === 'collection') loadCollection();
+            if (section === 'friends') loadFriends();
         }
 
         // Показать модальное окно
         function showModal(modalId) {
-            document.getElementById(modalId).style.display = 'flex';
+            const modal = document.getElementById(modalId);
+            if (modal) {
+                modal.style.display = 'flex';
+            }
         }
 
         // Закрыть модальное окно
         function closeModal(modalId) {
-            document.getElementById(modalId).style.display = 'none';
+            const modal = document.getElementById(modalId);
+            if (modal) {
+                modal.style.display = 'none';
+            }
         }
 
         // Закрыть приложение
         function closeApp() {
-            tg.close();
+            if (typeof tg !== 'undefined' && tg.close) {
+                tg.close();
+            } else {
+                alert('Приложение будет закрыто только в Telegram');
+            }
         }
 
         // Копировать реферальную ссылку
         function copyRefLink() {
             const refLink = document.getElementById('refLink');
+            if (!refLink) return;
+            
             refLink.select();
             refLink.setSelectionRange(0, 99999);
-            document.execCommand('copy');
-            alert('Ссылка скопирована!');
-        }
-
-        // Сохранение данных в localStorage (для демо)
-        function saveHistory() {
-            localStorage.setItem('roulette_history', JSON.stringify(history));
-        }
-
-        function saveCollection() {
-            localStorage.setItem('roulette_collection', JSON.stringify(collection));
-        }
-
-        // Загрузка данных из localStorage (для демо)
-        function loadUserData() {
-            const savedHistory = localStorage.getItem('roulette_history');
-            const savedCollection = localStorage.getItem('roulette_collection');
             
-            if (savedHistory) history = JSON.parse(savedHistory);
-            if (savedCollection) collection = JSON.parse(savedCollection);
-            
-            // Реферальная ссылка
-            const user = tg.initDataUnsafe.user || {};
-            const refLink = `https://t.me/rullet_golden_bot?start=ref_${user.id || 'demo'}`;
-            document.getElementById('refLink').value = refLink;
-            
-            updateTickets();
-            loadHistory();
-            loadCollection();
+            try {
+                document.execCommand('copy');
+                alert('Ссылка скопирована в буфер обмена!');
+            } catch (err) {
+                console.error('Copy failed:', err);
+                alert('Не удалось скопировать ссылку');
+            }
         }
     </script>
 </body>
